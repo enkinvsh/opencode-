@@ -274,15 +274,15 @@ function Install-AntigravityAuthPlugin {
         try {
             $config = Get-Content $configFile -Raw | ConvertFrom-Json
             
-            # Initialize plugins array if not exists
-            if (-not $config.plugins) {
-                $config | Add-Member -NotePropertyName "plugins" -NotePropertyValue @() -Force
+            # Initialize plugin array if not exists (note: singular "plugin", not "plugins")
+            if (-not $config.plugin) {
+                $config | Add-Member -NotePropertyName "plugin" -NotePropertyValue @() -Force
             }
             
             # Add antigravity auth plugin if not already present
-            $pluginExists = $config.plugins | Where-Object { $_ -eq "opencode-antigravity-auth" }
+            $pluginExists = $config.plugin | Where-Object { $_ -eq "opencode-antigravity-auth" }
             if (-not $pluginExists) {
-                $config.plugins += "opencode-antigravity-auth"
+                $config.plugin += "opencode-antigravity-auth"
                 $config | ConvertTo-Json -Depth 10 | Set-Content $configFile -Encoding UTF8
                 Write-Ok "Added opencode-antigravity-auth plugin to config"
             }
@@ -298,8 +298,9 @@ function Install-AntigravityAuthPlugin {
 function Create-FreshConfig {
     param([string]$ConfigFile)
     
+    # Note: OpenCode uses "plugin" (singular), not "plugins"
     $config = @{
-        plugins = @("opencode-antigravity-auth")
+        plugin = @("opencode-antigravity-auth")
     }
     
     $config | ConvertTo-Json -Depth 10 | Set-Content $ConfigFile -Encoding UTF8

@@ -274,7 +274,7 @@ function Create-FreshConfig {
   "$schema": "https://opencode.ai/config.json",
   "plugin": [
     "oh-my-opencode",
-    "opencode-antigravity-auth@beta",
+    "opencode-antigravity-auth@1.3.2",
     "opencode-antigravity-quota@0.1.6"
   ],
   "provider": {

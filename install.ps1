@@ -247,18 +247,6 @@ function Test-AuthPlugins {
 function Install-AntigravityAuthPlugin {
     param([string]$PkgManager = "npm")
     
-    # Install npm packages for plugins
-    Write-Info "Installing oh-my-opencode plugins via npm..."
-    
-    try {
-        npm install -g oh-my-opencode 2>$null
-        npm install -g opencode-antigravity-auth@1.3.2 2>$null
-        npm install -g opencode-antigravity-quota@0.1.6 2>$null
-        Write-Ok "Plugins installed successfully"
-    } catch {
-        Write-Warn "Some plugins may have failed to install"
-    }
-    
     # Ensure config directory exists
     if (-not (Test-Path $CONFIG_DIR)) {
         New-Item -ItemType Directory -Path $CONFIG_DIR -Force | Out-Null
@@ -267,13 +255,25 @@ function Install-AntigravityAuthPlugin {
     $configFile = Join-Path $CONFIG_DIR "opencode.json"
     $omoConfigFile = Join-Path $CONFIG_DIR "oh-my-opencode.json"
     
-    # Always create fresh opencode.json with full config
+    # Create fresh opencode.json with full config
+    # NOTE: OpenCode installs plugins via Bun at startup, not npm global
+    # We just need to specify plugin names in the config
     Create-FreshConfig -ConfigFile $configFile
     
     # Create oh-my-opencode.json with agent configuration
     if (-not (Test-Path $omoConfigFile)) {
         Create-OmoConfig -ConfigFile $omoConfigFile
     }
+    
+    # Clear OpenCode's plugin cache to force fresh install
+    $cacheDir = "$env:USERPROFILE\.cache\opencode\node_modules"
+    if (Test-Path $cacheDir) {
+        Write-Info "Clearing OpenCode plugin cache..."
+        Remove-Item -Recurse -Force $cacheDir -ErrorAction SilentlyContinue
+    }
+    
+    Write-Ok "Configuration files created"
+    Write-Info "OpenCode will install plugins automatically on first start"
 }
 
 function Create-FreshConfig {
@@ -286,8 +286,8 @@ function Create-FreshConfig {
   "$schema": "https://opencode.ai/config.json",
   "plugin": [
     "oh-my-opencode",
-    "opencode-antigravity-auth@1.3.2",
-    "opencode-antigravity-quota@0.1.6"
+    "opencode-antigravity-auth",
+    "opencode-antigravity-quota"
   ],
   "provider": {
     "google": {

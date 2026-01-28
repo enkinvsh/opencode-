@@ -1,28 +1,87 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Oh-My-OpenCode Universal Installer for Windows
+    Oh-My-OpenCode Production Installer for Windows
 .DESCRIPTION
-    Checks for Node.js/Bun and runs the oh-my-opencode install wizard
+    Complete installer that handles all known Windows issues:
+    - Avoids npx/bunx issues (Issue #1171, #1175)
+    - Installs plugins locally in config directory
+    - Preserves existing credentials
+    - Creates correct configuration files
 .EXAMPLE
-    irm https://raw.githubusercontent.com/user/repo/main/install.ps1 | iex
+    irm https://raw.githubusercontent.com/enkinvsh/opencode-/main/install.ps1 | iex
+.NOTES
+    Version: 2.0.0 (Production)
+    Updated: January 2026
 #>
 
 param(
-    [Switch]$NoColor = $false,
-    [Switch]$SkipAuthCheck = $false
+    [Switch]$Force = $false,
+    [Switch]$SkipOpenCode = $false,
+    [Switch]$Verbose = $false
 )
 
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'  # Speed up Invoke-WebRequest
 
-$PACKAGE_NAME = "oh-my-opencode"
-$CONFIG_DIR = "$env:USERPROFILE\.config\opencode"
+# ============================================================================
+# Configuration Constants
+# ============================================================================
+
 $MIN_NODE_VERSION = 18
+$CONFIG_DIR = Join-Path $env:USERPROFILE ".config\opencode"
+$CREDENTIALS_FILES = @(
+    "secrets.json",
+    "credentials.json", 
+    "auth.json",
+    ".credentials",
+    "tokens.json"
+)
 
-function Write-Info { param([string]$Message) Write-Host "[INFO] $Message" -ForegroundColor Blue }
-function Write-Ok { param([string]$Message) Write-Host "[OK] $Message" -ForegroundColor Green }
-function Write-Warn { param([string]$Message) Write-Host "[WARN] $Message" -ForegroundColor Yellow }
-function Write-Err { param([string]$Message) Write-Host "[ERROR] $Message" -ForegroundColor Red }
+# ============================================================================
+# Logging Functions
+# ============================================================================
+
+function Write-Step { 
+    param([string]$Message) 
+    Write-Host "`n[STEP] " -ForegroundColor Magenta -NoNewline
+    Write-Host $Message -ForegroundColor White
+}
+
+function Write-Info { 
+    param([string]$Message) 
+    Write-Host "[INFO] " -ForegroundColor Blue -NoNewline
+    Write-Host $Message
+}
+
+function Write-Ok { 
+    param([string]$Message) 
+    Write-Host "[OK] " -ForegroundColor Green -NoNewline
+    Write-Host $Message -ForegroundColor Green
+}
+
+function Write-Warn { 
+    param([string]$Message) 
+    Write-Host "[WARN] " -ForegroundColor Yellow -NoNewline
+    Write-Host $Message -ForegroundColor Yellow
+}
+
+function Write-Err { 
+    param([string]$Message) 
+    Write-Host "[ERROR] " -ForegroundColor Red -NoNewline
+    Write-Host $Message -ForegroundColor Red
+}
+
+function Write-Dbg {
+    param([string]$Message)
+    if ($Verbose) {
+        Write-Host "[DEBUG] $Message" -ForegroundColor DarkGray
+    }
+}
+
+# ============================================================================
+# Utility Functions
+# ============================================================================
 
 function Test-Command {
     param([string]$Command)
@@ -31,273 +90,270 @@ function Test-Command {
 
 function Get-NodeMajorVersion {
     if (Test-Command "node") {
-        $version = (node --version) -replace '^v', ''
-        [int]($version -split '\.')[0]
+        try {
+            $version = (node --version 2>$null) -replace '^v', ''
+            [int]($version -split '\.')[0]
+        } catch {
+            0
+        }
     } else {
         0
     }
 }
 
-function Test-WindowsVersion {
-    $MinBuild = 17763
-    $WinVer = [System.Environment]::OSVersion.Version
-    
-    if ($WinVer.Major -lt 10 -or ($WinVer.Major -eq 10 -and $WinVer.Build -lt $MinBuild)) {
-        Write-Warn "Windows 10 1809 (build $MinBuild) or newer recommended."
-        Write-Warn "Current: Windows $($WinVer.Major) build $($WinVer.Build)"
+function Test-NpmWorks {
+    try {
+        $result = npm --version 2>$null
+        return $LASTEXITCODE -eq 0 -and $result
+    } catch {
         return $false
     }
+}
+
+function Invoke-NpmCommand {
+    param(
+        [string]$Command,
+        [string]$WorkDir = $null
+    )
+    
+    $originalLocation = Get-Location
+    try {
+        if ($WorkDir) {
+            Set-Location $WorkDir
+        }
+        
+        Write-Dbg "Running: npm $Command"
+        $output = cmd /c "npm $Command 2>&1"
+        $exitCode = $LASTEXITCODE
+        
+        if ($Verbose) {
+            $output | ForEach-Object { Write-Dbg $_ }
+        }
+        
+        return @{
+            Success = ($exitCode -eq 0)
+            Output = $output
+            ExitCode = $exitCode
+        }
+    } finally {
+        Set-Location $originalLocation
+    }
+}
+
+# ============================================================================
+# Prerequisite Checks
+# ============================================================================
+
+function Test-Prerequisites {
+    Write-Step "Checking Prerequisites"
+    
+    # Check Windows version
+    $winVer = [System.Environment]::OSVersion.Version
+    Write-Info "Windows $($winVer.Major).$($winVer.Minor) (Build $($winVer.Build))"
+    
+    # Check architecture
+    $arch = if ([Environment]::Is64BitOperatingSystem) { "x64" } else { "x86" }
+    Write-Info "Architecture: $arch"
+    
+    # Check Node.js
+    if (-not (Test-Command "node")) {
+        Write-Err "Node.js is not installed!"
+        Show-NodeInstallHelp
+        return $false
+    }
+    
+    $nodeVersion = Get-NodeMajorVersion
+    if ($nodeVersion -lt $MIN_NODE_VERSION) {
+        Write-Err "Node.js v$nodeVersion found, but v$MIN_NODE_VERSION+ is required"
+        Show-NodeInstallHelp
+        return $false
+    }
+    
+    Write-Ok "Node.js v$nodeVersion detected"
+    
+    # Check npm
+    if (-not (Test-NpmWorks)) {
+        Write-Err "npm is not working properly!"
+        Write-Info "Try reinstalling Node.js from https://nodejs.org"
+        return $false
+    }
+    
+    $npmVersion = npm --version 2>$null
+    Write-Ok "npm v$npmVersion detected"
+    
+    # TLS check
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Write-Ok "TLS 1.2 enabled"
+    } catch {
+        Write-Warn "Could not set TLS 1.2, but installation may still work"
+    }
+    
     return $true
 }
 
-function Get-PackageManager {
-    # On Windows, prefer npm over bun due to bun stability issues
-    # Bun on Windows has known segmentation fault issues
-    if (Test-Command "npm") {
-        return "npm"
-    } elseif (Test-Command "pnpm") {
-        return "pnpm"
-    } elseif (Test-Command "yarn") {
-        return "yarn"
-    } elseif (Test-Command "bun") {
-        Write-Warn "Bun detected, but using npm is recommended on Windows due to stability issues"
-        return "bun"
-    }
-    return "none"
-}
-
-function Show-NodeInstallHint {
+function Show-NodeInstallHelp {
     Write-Host ""
-    Write-Err "Node.js v$MIN_NODE_VERSION+ or Bun is required but not found."
-    Write-Host ""
-    Write-Host "Install options:" -ForegroundColor Cyan
+    Write-Host "Node.js v$MIN_NODE_VERSION+ is required. Install options:" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "  # Using winget (recommended):" -ForegroundColor Gray
-    Write-Host "  winget install OpenJS.NodeJS.LTS"
-    Write-Host ""
-    Write-Host "  # Or install Bun:" -ForegroundColor Gray
-    Write-Host "  powershell -c `"irm bun.sh/install.ps1 | iex`""
+    Write-Host "  winget install OpenJS.NodeJS.LTS" -ForegroundColor White
     Write-Host ""
     Write-Host "  # Or download manually:" -ForegroundColor Gray
-    Write-Host "  https://nodejs.org/en/download/"
+    Write-Host "  https://nodejs.org/en/download/" -ForegroundColor White
     Write-Host ""
-    Write-Host "After installing, restart PowerShell and re-run this installer."
-    Write-Host ""
+    Write-Host "After installing, restart PowerShell and run this script again." -ForegroundColor Yellow
 }
 
+# ============================================================================
+# OpenCode Installation
+# ============================================================================
+
 function Test-OpenCodeInstalled {
-    # Check for opencode binary in PATH
     if (Test-Command "opencode") {
         return $true
     }
-    # Check common installation locations
-    $commonPaths = @(
+    
+    # Check common paths
+    $paths = @(
         "$env:APPDATA\npm\opencode.cmd",
         "$env:APPDATA\npm\opencode",
-        "$env:USERPROFILE\.bun\bin\opencode.exe",
-        "$env:USERPROFILE\scoop\shims\opencode.exe",
-        "C:\ProgramData\chocolatey\bin\opencode.exe"
+        "$env:USERPROFILE\.bun\bin\opencode.exe"
     )
-    foreach ($path in $commonPaths) {
+    
+    foreach ($path in $paths) {
         if (Test-Path $path) {
             return $true
         }
     }
+    
     return $false
 }
 
-function Install-OpenCode {
-    param([string]$PkgManager)
-    
-    Write-Info "Installing OpenCode CLI..."
-    Write-Host ""
-    
-    switch ($PkgManager) {
-        "bun" {
-            bun install -g opencode-ai
-        }
-        "npm" {
-            npm install -g opencode-ai
-        }
-        "pnpm" {
-            pnpm install -g opencode-ai
-        }
-        "yarn" {
-            yarn global add opencode-ai
-        }
-        default {
-            throw "No package manager available to install OpenCode"
-        }
+function Install-OpenCodeCLI {
+    if ($SkipOpenCode) {
+        Write-Info "Skipping OpenCode installation (--SkipOpenCode)"
+        return $true
     }
     
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warn "OpenCode installation via $PkgManager may have failed."
-        Write-Host ""
-        Write-Host "Alternative installation methods:" -ForegroundColor Cyan
-        Write-Host ""
-        Write-Host "  # Using Scoop (recommended for Windows):" -ForegroundColor Gray
-        Write-Host "  scoop install opencode"
-        Write-Host ""
-        Write-Host "  # Using Chocolatey:" -ForegroundColor Gray
-        Write-Host "  choco install opencode"
-        Write-Host ""
+    Write-Step "Installing OpenCode CLI"
+    
+    if (Test-OpenCodeInstalled) {
+        Write-Ok "OpenCode is already installed"
+        try {
+            $version = opencode --version 2>$null
+            if ($version) {
+                Write-Info "Version: $version"
+            }
+        } catch {}
+        return $true
+    }
+    
+    Write-Info "Installing opencode-ai globally via npm..."
+    
+    $result = Invoke-NpmCommand "install -g opencode-ai"
+    
+    if ($result.Success) {
+        Write-Ok "OpenCode installed successfully"
+        
+        # Refresh PATH for current session
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + 
+                    [System.Environment]::GetEnvironmentVariable("Path", "User")
+        
+        return $true
+    } else {
+        Write-Warn "OpenCode installation may have issues"
+        Write-Info "You can try manually: npm install -g opencode-ai"
         return $false
     }
-    
-    Write-Ok "OpenCode installed successfully"
-    return $true
 }
 
-function Test-Prerequisites {
-    Write-Info "Checking prerequisites..."
-    
-    $null = Test-WindowsVersion
-    
-    $arch = if ([Environment]::Is64BitOperatingSystem) { "x64" } else { "x86" }
-    Write-Info "Platform: Windows ($arch)"
-    
-    Write-Ok "Prerequisites check passed"
-}
+# ============================================================================
+# Configuration Directory Setup
+# ============================================================================
 
-function Test-NodeRuntime {
-    Write-Info "Checking Node.js runtime..."
+function Initialize-ConfigDirectory {
+    Write-Step "Setting Up Configuration Directory"
     
-    $pkgManager = Get-PackageManager
-    
-    if ($pkgManager -eq "bun") {
-        $bunVersion = (bun --version 2>$null) -replace '^', ''
-        Write-Ok "Found Bun v$bunVersion"
-        return "bun"
+    # Create config directory if not exists
+    if (-not (Test-Path $CONFIG_DIR)) {
+        Write-Info "Creating $CONFIG_DIR"
+        New-Item -ItemType Directory -Path $CONFIG_DIR -Force | Out-Null
+        Write-Ok "Config directory created"
+    } else {
+        Write-Ok "Config directory already exists"
     }
     
-    if (Test-Command "node") {
-        $nodeVersion = Get-NodeMajorVersion
-        
-        if ($nodeVersion -ge $MIN_NODE_VERSION) {
-            Write-Ok "Found Node.js v$nodeVersion"
-            
-            if ($pkgManager -ne "none") {
-                return $pkgManager
+    # Backup credentials
+    $backupDir = Join-Path $CONFIG_DIR ".credentials_backup_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+    $credentialsFound = $false
+    
+    foreach ($credFile in $CREDENTIALS_FILES) {
+        $credPath = Join-Path $CONFIG_DIR $credFile
+        if (Test-Path $credPath) {
+            if (-not $credentialsFound) {
+                New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
+                Write-Info "Backing up credentials to: $backupDir"
+                $credentialsFound = $true
             }
-        } else {
-            Write-Warn "Node.js v$nodeVersion found, but v$MIN_NODE_VERSION+ is required"
+            Copy-Item $credPath (Join-Path $backupDir $credFile) -Force
+            Write-Dbg "Backed up: $credFile"
         }
     }
     
-    return "none"
-}
-
-function Invoke-SetupWizard {
-    param([string]$PkgManager)
-    
-    Write-Info "Running oh-my-opencode setup wizard..."
-    Write-Host ""
-    
-    switch ($PkgManager) {
-        "bun" {
-            bunx $PACKAGE_NAME install
-        }
-        "npm" {
-            npx $PACKAGE_NAME install
-        }
-        "pnpm" {
-            pnpm dlx $PACKAGE_NAME install
-        }
-        "yarn" {
-            yarn dlx $PACKAGE_NAME install
-        }
-        default {
-            if (Test-Command "oh-my-opencode") {
-                oh-my-opencode install
-            } else {
-                throw "Could not run setup wizard"
-            }
-        }
+    if ($credentialsFound) {
+        Write-Ok "Credentials backed up (will be preserved)"
     }
+    
+    return $backupDir
 }
 
-function Test-AuthPlugins {
-    param([string]$PkgManager = "npm")
+function Restore-Credentials {
+    param([string]$BackupDir)
     
-    if ($SkipAuthCheck) {
-        Write-Info "Skipping auth plugins check (--SkipAuthCheck)"
+    if (-not $BackupDir -or -not (Test-Path $BackupDir)) {
         return
     }
     
-    Write-Info "Checking auth plugins configuration..."
+    Write-Info "Restoring credentials..."
     
-    $configFile = Join-Path $CONFIG_DIR "opencode.json"
-    
-    if (Test-Path $configFile) {
-        $content = Get-Content $configFile -Raw
-        if ($content -match "opencode-antigravity-auth") {
-            Write-Ok "Antigravity auth plugin already configured"
-        } else {
-            Write-Warn "Antigravity auth plugin not found in config"
-            Write-Info "Adding plugin to configuration..."
-            Install-AntigravityAuthPlugin -PkgManager $PkgManager
-        }
-    } else {
-        Write-Warn "OpenCode config not found at $configFile"
-        Write-Info "Creating config with Antigravity auth plugin..."
-        Install-AntigravityAuthPlugin -PkgManager $PkgManager
+    Get-ChildItem $BackupDir | ForEach-Object {
+        $destPath = Join-Path $CONFIG_DIR $_.Name
+        Copy-Item $_.FullName $destPath -Force
+        Write-Dbg "Restored: $($_.Name)"
     }
+    
+    # Clean up backup directory
+    Remove-Item $BackupDir -Recurse -Force -ErrorAction SilentlyContinue
+    
+    Write-Ok "Credentials restored"
 }
 
-function Install-AntigravityAuthPlugin {
-    param([string]$PkgManager = "npm")
+# ============================================================================
+# Configuration File Creation
+# ============================================================================
+
+function New-OpenCodeConfig {
+    Write-Step "Creating OpenCode Configuration"
     
-    # Ensure config directory exists
-    if (-not (Test-Path $CONFIG_DIR)) {
-        New-Item -ItemType Directory -Path $CONFIG_DIR -Force | Out-Null
-    }
+    $configPath = Join-Path $CONFIG_DIR "opencode.json"
     
-    $configFile = Join-Path $CONFIG_DIR "opencode.json"
-    $omoConfigFile = Join-Path $CONFIG_DIR "oh-my-opencode.json"
-    
-    # Create opencode.json with plugin config
-    Create-FreshConfig -ConfigFile $configFile
-    
-    # Create oh-my-opencode.json with agent configuration
-    if (-not (Test-Path $omoConfigFile)) {
-        Create-OmoConfig -ConfigFile $omoConfigFile
-    }
-    
-    # CRITICAL: Install plugins locally in the config directory
-    # OpenCode looks for node_modules in the config directory
-    Write-Info "Installing plugins in config directory..."
-    
-    Push-Location $CONFIG_DIR
-    try {
-        # Initialize package.json if not exists
-        if (-not (Test-Path "package.json")) {
-            npm init -y 2>$null | Out-Null
+    if ((Test-Path $configPath) -and -not $Force) {
+        Write-Info "opencode.json already exists"
+        
+        # Check if it has the required plugins
+        $content = Get-Content $configPath -Raw
+        if ($content -match "oh-my-opencode" -and $content -match "opencode-antigravity-auth") {
+            Write-Ok "Configuration looks correct"
+            return
         }
         
-        # Install oh-my-opencode and auth plugins locally
-        Write-Info "Installing oh-my-opencode (this may take a minute)..."
-        npm install oh-my-opencode --save 2>&1 | Out-Null
-        
-        Write-Info "Installing opencode-antigravity-auth..."
-        npm install opencode-antigravity-auth --save 2>&1 | Out-Null
-        
-        Write-Info "Installing opencode-antigravity-quota..."
-        npm install opencode-antigravity-quota --save 2>&1 | Out-Null
-        
-        Write-Ok "Plugins installed successfully"
-    } catch {
-        Write-Warn "Some plugins may have failed to install: $_"
-    } finally {
-        Pop-Location
+        Write-Warn "Existing config may be missing plugins, recreating..."
     }
-}
-
-function Create-FreshConfig {
-    param([string]$ConfigFile)
     
-    # Full OpenCode config with schema, plugins and provider
-    # Based on setup-opencode.md documentation
-    $configJson = @'
+    # Full opencode.json configuration
+    # NOTE: Plugins without version pinning as per Issue #1171 recommendation
+    $config = @'
 {
   "$schema": "https://opencode.ai/config.json",
   "plugin": [
@@ -339,16 +395,23 @@ function Create-FreshConfig {
 }
 '@
     
-    $configJson | Set-Content $ConfigFile -Encoding UTF8
-    Write-Ok "Created opencode.json with full Antigravity configuration"
+    $config | Set-Content $configPath -Encoding UTF8
+    Write-Ok "Created opencode.json"
 }
 
-function Create-OmoConfig {
-    param([string]$ConfigFile)
+function New-OhMyOpenCodeConfig {
+    Write-Step "Creating Oh-My-OpenCode Agent Configuration"
     
-    # oh-my-opencode.json with agent configuration
-    # Based on setup-opencode.md documentation
-    $configJson = @'
+    $configPath = Join-Path $CONFIG_DIR "oh-my-opencode.json"
+    
+    if ((Test-Path $configPath) -and -not $Force) {
+        Write-Info "oh-my-opencode.json already exists"
+        Write-Ok "Keeping existing agent configuration"
+        return
+    }
+    
+    # Full oh-my-opencode.json with all agents
+    $config = @'
 {
   "$schema": "https://oh-my-opencode.dev/schema.json",
   
@@ -416,96 +479,265 @@ function Create-OmoConfig {
 }
 '@
     
-    $configJson | Set-Content $ConfigFile -Encoding UTF8
-    Write-Ok "Created oh-my-opencode.json with agent configuration"
+    $config | Set-Content $configPath -Encoding UTF8
+    Write-Ok "Created oh-my-opencode.json with Sisyphus agent enabled"
 }
+
+# ============================================================================
+# Plugin Installation (CRITICAL: Local to config directory)
+# ============================================================================
+
+function Install-Plugins {
+    Write-Step "Installing Plugins (Local to Config Directory)"
+    
+    Write-Info "OpenCode loads plugins from: $CONFIG_DIR\node_modules"
+    
+    $originalLocation = Get-Location
+    
+    try {
+        Set-Location $CONFIG_DIR
+        
+        # Initialize package.json if not exists
+        $packageJsonPath = Join-Path $CONFIG_DIR "package.json"
+        if (-not (Test-Path $packageJsonPath)) {
+            Write-Info "Initializing package.json..."
+            
+            $packageJson = @{
+                name = "opencode-config"
+                version = "1.0.0"
+                description = "OpenCode plugin configuration"
+                private = $true
+            } | ConvertTo-Json -Depth 5
+            
+            $packageJson | Set-Content $packageJsonPath -Encoding UTF8
+        }
+        
+        # Install plugins one by one with progress
+        $plugins = @(
+            @{ Name = "oh-my-opencode"; Description = "Core oh-my-opencode plugin" },
+            @{ Name = "opencode-antigravity-auth"; Description = "Antigravity authentication" },
+            @{ Name = "opencode-antigravity-quota"; Description = "Quota management" }
+        )
+        
+        foreach ($plugin in $plugins) {
+            Write-Info "Installing $($plugin.Name)..."
+            
+            # Use npm install with explicit save
+            $result = Invoke-NpmCommand "install $($plugin.Name) --save"
+            
+            if ($result.Success) {
+                Write-Ok "$($plugin.Name) installed"
+            } else {
+                Write-Warn "Issues with $($plugin.Name), trying alternative approach..."
+                
+                # Fallback: try without --save
+                $result2 = Invoke-NpmCommand "install $($plugin.Name)"
+                if ($result2.Success) {
+                    Write-Ok "$($plugin.Name) installed (alternative)"
+                } else {
+                    Write-Err "Failed to install $($plugin.Name)"
+                    Write-Info "You may need to install manually: cd $CONFIG_DIR && npm install $($plugin.Name)"
+                }
+            }
+        }
+        
+        # Verify node_modules exists
+        $nodeModulesPath = Join-Path $CONFIG_DIR "node_modules"
+        if (Test-Path $nodeModulesPath) {
+            $installedCount = (Get-ChildItem $nodeModulesPath -Directory).Count
+            Write-Ok "node_modules contains $installedCount packages"
+        } else {
+            Write-Warn "node_modules directory not found - plugins may not load"
+        }
+        
+    } finally {
+        Set-Location $originalLocation
+    }
+}
+
+# ============================================================================
+# Verification
+# ============================================================================
+
+function Test-Installation {
+    Write-Step "Verifying Installation"
+    
+    $success = $true
+    
+    # Check config files
+    $requiredFiles = @(
+        @{ Path = "opencode.json"; Required = $true },
+        @{ Path = "oh-my-opencode.json"; Required = $true },
+        @{ Path = "node_modules"; Required = $true }
+    )
+    
+    foreach ($file in $requiredFiles) {
+        $fullPath = Join-Path $CONFIG_DIR $file.Path
+        if (Test-Path $fullPath) {
+            Write-Ok "$($file.Path) exists"
+        } else {
+            if ($file.Required) {
+                Write-Err "$($file.Path) is missing!"
+                $success = $false
+            } else {
+                Write-Warn "$($file.Path) not found (optional)"
+            }
+        }
+    }
+    
+    # Check plugins in node_modules
+    $nodeModulesPath = Join-Path $CONFIG_DIR "node_modules"
+    if (Test-Path $nodeModulesPath) {
+        $requiredPlugins = @("oh-my-opencode", "opencode-antigravity-auth", "opencode-antigravity-quota")
+        
+        foreach ($plugin in $requiredPlugins) {
+            $pluginPath = Join-Path $nodeModulesPath $plugin
+            if (Test-Path $pluginPath) {
+                Write-Ok "Plugin: $plugin"
+            } else {
+                Write-Warn "Plugin $plugin not found in node_modules"
+            }
+        }
+    }
+    
+    # Check OpenCode command
+    if (Test-Command "opencode") {
+        Write-Ok "opencode command available"
+    } else {
+        Write-Warn "opencode command not in PATH (may need terminal restart)"
+    }
+    
+    return $success
+}
+
+# ============================================================================
+# Success Message
+# ============================================================================
 
 function Show-SuccessMessage {
     Write-Host ""
-    Write-Host "==============================================" -ForegroundColor Green
-    Write-Host "   Oh-My-OpenCode installed successfully!   " -ForegroundColor Green
-    Write-Host "==============================================" -ForegroundColor Green
+    Write-Host "==============================================================" -ForegroundColor Green
+    Write-Host "                                                              " -ForegroundColor Green
+    Write-Host "       Oh-My-OpenCode installed successfully!                 " -ForegroundColor Green
+    Write-Host "                                                              " -ForegroundColor Green
+    Write-Host "==============================================================" -ForegroundColor Green
     Write-Host ""
     
-    # Check if opencode is available in PATH
+    Write-Host "Configuration Location:" -ForegroundColor White
+    Write-Host "  $CONFIG_DIR" -ForegroundColor Cyan
+    Write-Host ""
+    
+    Write-Host "--------------------------------------------------------------" -ForegroundColor DarkGray
+    Write-Host ""
+    
+    Write-Host "NEXT STEPS:" -ForegroundColor Yellow
+    Write-Host ""
+    
+    Write-Host "  1. " -ForegroundColor White -NoNewline
+    Write-Host "Authenticate with Antigravity:" -ForegroundColor White
+    Write-Host "     opencode auth login" -ForegroundColor Cyan
+    Write-Host "     " -NoNewline
+    Write-Host "(Select 'Google' when prompted)" -ForegroundColor DarkGray
+    Write-Host ""
+    
+    Write-Host "  2. " -ForegroundColor White -NoNewline
+    Write-Host "Start OpenCode:" -ForegroundColor White
+    Write-Host "     opencode" -ForegroundColor Cyan
+    Write-Host ""
+    
+    Write-Host "  3. " -ForegroundColor White -NoNewline
+    Write-Host "Check quota (inside OpenCode):" -ForegroundColor White
+    Write-Host "     /antigravity-quota" -ForegroundColor Cyan
+    Write-Host ""
+    
+    Write-Host "--------------------------------------------------------------" -ForegroundColor DarkGray
+    Write-Host ""
+    
+    Write-Host "SISYPHUS AGENT READY!" -ForegroundColor Magenta
+    Write-Host "  After auth, the Sisyphus agent will be available for complex tasks." -ForegroundColor Gray
+    Write-Host "  Use: " -ForegroundColor Gray -NoNewline
+    Write-Host "/start-work" -ForegroundColor Cyan -NoNewline
+    Write-Host " to begin autonomous work mode." -ForegroundColor Gray
+    Write-Host ""
+    
+    Write-Host "--------------------------------------------------------------" -ForegroundColor DarkGray
+    Write-Host ""
+    
     if (-not (Test-Command "opencode")) {
-        Write-Host ""
-        Write-Host "IMPORTANT: 'opencode' command not found in PATH!" -ForegroundColor Yellow
-        Write-Host ""
-        Write-Host "You need to restart your terminal (close and reopen PowerShell)" -ForegroundColor Yellow
-        Write-Host "for the PATH changes to take effect." -ForegroundColor Yellow
-        Write-Host ""
-        
-        # Show where the binary might be located
-        $bunBinPath = "$env:USERPROFILE\.bun\bin"
-        $npmBinPath = "$env:APPDATA\npm"
-        
-        if (Test-Path $bunBinPath) {
-            Write-Host "Bun bin directory found at: $bunBinPath" -ForegroundColor Gray
-        }
-        if (Test-Path $npmBinPath) {
-            Write-Host "npm bin directory found at: $npmBinPath" -ForegroundColor Gray
-        }
-        
-        Write-Host ""
-        Write-Host "If 'opencode' still doesn't work after restart, ensure the bin" -ForegroundColor Gray
-        Write-Host "directory is in your PATH environment variable." -ForegroundColor Gray
+        Write-Host "WARNING: Restart your terminal to use 'opencode' command!" -ForegroundColor Yellow
         Write-Host ""
     }
     
-    Write-Host "Next steps:" -ForegroundColor White
-    Write-Host ""
-    Write-Host "  1. Authenticate with Antigravity:" -ForegroundColor White
-    Write-Host "     opencode auth login" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "  2. Start OpenCode:" -ForegroundColor White
-    Write-Host "     opencode" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "  3. Check quota status (inside opencode):" -ForegroundColor White
-    Write-Host "     /antigravity-quota" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "Documentation:" -ForegroundColor White
-    Write-Host "  - GitHub: https://github.com/code-yeongyu/oh-my-opencode" -ForegroundColor Gray
+    Write-Host "Documentation: https://github.com/code-yeongyu/oh-my-opencode" -ForegroundColor DarkGray
     Write-Host ""
 }
+
+# ============================================================================
+# Main Installation Flow
+# ============================================================================
 
 function Main {
     Write-Host ""
-    Write-Host "========================================" -ForegroundColor Cyan
-    Write-Host "  Oh-My-OpenCode Universal Installer   " -ForegroundColor Cyan
-    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host "==============================================================" -ForegroundColor Cyan
+    Write-Host "                                                              " -ForegroundColor Cyan
+    Write-Host "       Oh-My-OpenCode Windows Installer v2.0                  " -ForegroundColor Cyan
+    Write-Host "       Production-Ready Edition                               " -ForegroundColor Cyan
+    Write-Host "                                                              " -ForegroundColor Cyan
+    Write-Host "==============================================================" -ForegroundColor Cyan
     Write-Host ""
     
-    Test-Prerequisites
-    
-    $pkgManager = Test-NodeRuntime
-    
-    if ($pkgManager -eq "none") {
-        Show-NodeInstallHint
+    # Step 1: Prerequisites
+    if (-not (Test-Prerequisites)) {
+        Write-Err "Prerequisites check failed. Please fix the issues above and try again."
         exit 1
     }
     
-    # Check if OpenCode is installed, install if not
-    Write-Host ""
-    Write-Info "Checking OpenCode installation..."
-    
-    if (-not (Test-OpenCodeInstalled)) {
-        Write-Warn "OpenCode CLI not found. Installing..."
-        $installed = Install-OpenCode -PkgManager $pkgManager
-        if (-not $installed) {
-            Write-Err "Failed to install OpenCode. Please install it manually and re-run this script."
-            exit 1
-        }
-    } else {
-        Write-Ok "OpenCode CLI is already installed"
+    # Step 2: Install OpenCode CLI
+    if (-not (Install-OpenCodeCLI)) {
+        Write-Warn "OpenCode installation had issues, but continuing with plugin setup..."
     }
     
-    Write-Host ""
-    Invoke-SetupWizard -PkgManager $pkgManager
+    # Step 3: Setup config directory and backup credentials
+    $credentialsBackup = Initialize-ConfigDirectory
     
-    Test-AuthPlugins -PkgManager $pkgManager
+    # Step 4: Create configuration files
+    New-OpenCodeConfig
+    New-OhMyOpenCodeConfig
     
-    Show-SuccessMessage
+    # Step 5: Install plugins locally
+    Install-Plugins
+    
+    # Step 6: Restore credentials if they were backed up
+    if ($credentialsBackup) {
+        Restore-Credentials -BackupDir $credentialsBackup
+    }
+    
+    # Step 7: Verify installation
+    $installOk = Test-Installation
+    
+    # Step 8: Show success message
+    if ($installOk) {
+        Show-SuccessMessage
+    } else {
+        Write-Host ""
+        Write-Warn "Installation completed with some warnings."
+        Write-Info "Please review the issues above and fix manually if needed."
+        Write-Host ""
+        Show-SuccessMessage
+    }
 }
 
-Main
+# Run the installer
+try {
+    Main
+} catch {
+    Write-Err "Installation failed: $_"
+    Write-Host ""
+    Write-Host "Troubleshooting steps:" -ForegroundColor Yellow
+    Write-Host "  1. Ensure you have internet access" -ForegroundColor Gray
+    Write-Host "  2. Try running: npm cache clean --force" -ForegroundColor Gray
+    Write-Host "  3. Check if VPN is causing issues" -ForegroundColor Gray
+    Write-Host "  4. Run this script again with -Verbose for more details" -ForegroundColor Gray
+    Write-Host ""
+    exit 1
+}

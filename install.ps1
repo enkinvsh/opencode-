@@ -352,19 +352,31 @@ function New-OpenCodeConfig {
     }
     
     # Full opencode.json configuration
-    # NOTE: Plugins without version pinning as per Issue #1171 recommendation
+    # Based on working production config
     $config = @'
 {
   "$schema": "https://opencode.ai/config.json",
   "plugin": [
     "oh-my-opencode",
-    "opencode-antigravity-auth",
-    "opencode-antigravity-quota"
+    "opencode-antigravity-auth@1.3.2",
+    "opencode-antigravity-quota@0.1.6"
   ],
   "provider": {
     "google": {
       "name": "Google",
       "models": {
+        "antigravity-gemini-3-pro-high": {
+          "name": "Gemini 3 Pro High (Antigravity)",
+          "attachment": true,
+          "limit": { "context": 1048576, "output": 65535 },
+          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] }
+        },
+        "antigravity-gemini-3-flash": {
+          "name": "Gemini 3 Flash (Antigravity)",
+          "attachment": true,
+          "limit": { "context": 1048576, "output": 65536 },
+          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] }
+        },
         "antigravity-claude-opus-4-5-thinking": {
           "name": "Claude Opus 4.5 Thinking (Antigravity)",
           "attachment": true,
@@ -375,18 +387,6 @@ function New-OpenCodeConfig {
           "name": "Claude Sonnet 4.5 Thinking (Antigravity)",
           "attachment": true,
           "limit": { "context": 200000, "output": 64000 },
-          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] }
-        },
-        "antigravity-gemini-3-flash": {
-          "name": "Gemini 3 Flash (Antigravity)",
-          "attachment": true,
-          "limit": { "context": 1048576, "output": 65536 },
-          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] }
-        },
-        "antigravity-gemini-3-pro": {
-          "name": "Gemini 3 Pro (Antigravity)",
-          "attachment": true,
-          "limit": { "context": 1048576, "output": 65535 },
           "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] }
         }
       }
@@ -410,7 +410,7 @@ function New-OhMyOpenCodeConfig {
         return
     }
     
-    # Full oh-my-opencode.json with all agents
+    # Full oh-my-opencode.json with all agents - production config
     $config = @'
 {
   "$schema": "https://oh-my-opencode.dev/schema.json",
@@ -441,6 +441,16 @@ function New-OhMyOpenCodeConfig {
       "variant": "max",
       "thinking": { "type": "enabled", "budgetTokens": 32000 }
     },
+    "metis": {
+      "model": "google/antigravity-claude-sonnet-4-5-thinking",
+      "variant": "low",
+      "thinking": { "type": "enabled", "budgetTokens": 8192 }
+    },
+    "momus": {
+      "model": "google/antigravity-claude-sonnet-4-5-thinking",
+      "variant": "low",
+      "thinking": { "type": "enabled", "budgetTokens": 8192 }
+    },
     "explore": {
       "model": "google/antigravity-claude-sonnet-4-5-thinking",
       "variant": "low",
@@ -450,6 +460,10 @@ function New-OhMyOpenCodeConfig {
       "model": "google/antigravity-claude-sonnet-4-5-thinking",
       "variant": "low",
       "thinking": { "type": "enabled", "budgetTokens": 8192 }
+    },
+    "multimodal-looker": {
+      "model": "google/antigravity-gemini-3-pro",
+      "variant": "high"
     }
   },
 
@@ -458,6 +472,11 @@ function New-OhMyOpenCodeConfig {
       "model": "google/antigravity-claude-opus-4-5-thinking",
       "variant": "max",
       "thinking": { "type": "enabled", "budgetTokens": 32000 }
+    },
+    "unspecified-high": {
+      "model": "google/antigravity-claude-sonnet-4-5-thinking",
+      "variant": "max",
+      "thinking": { "type": "enabled", "budgetTokens": 16000 }
     },
     "visual-engineering": {
       "model": "google/antigravity-claude-sonnet-4-5-thinking",
@@ -468,6 +487,21 @@ function New-OhMyOpenCodeConfig {
       "model": "google/antigravity-claude-sonnet-4-5-thinking",
       "variant": "low",
       "thinking": { "type": "enabled", "budgetTokens": 8192 }
+    },
+    "unspecified-low": {
+      "model": "google/antigravity-claude-sonnet-4-5-thinking",
+      "variant": "low",
+      "thinking": { "type": "enabled", "budgetTokens": 8192 }
+    },
+    "artistry": {
+      "model": "google/antigravity-claude-sonnet-4-5-thinking",
+      "variant": "max",
+      "temperature": 0.9,
+      "thinking": { "type": "enabled", "budgetTokens": 16000 }
+    },
+    "writing": {
+      "model": "google/antigravity-claude-sonnet-4-5",
+      "temperature": 0.5
     }
   },
 
@@ -515,8 +549,8 @@ function Install-Plugins {
         # Install plugins one by one with progress
         $plugins = @(
             @{ Name = "oh-my-opencode"; Description = "Core oh-my-opencode plugin" },
-            @{ Name = "opencode-antigravity-auth"; Description = "Antigravity authentication" },
-            @{ Name = "opencode-antigravity-quota"; Description = "Quota management" }
+            @{ Name = "opencode-antigravity-auth@1.3.2"; Description = "Antigravity authentication" },
+            @{ Name = "opencode-antigravity-quota@0.1.6"; Description = "Quota management" }
         )
         
         foreach ($plugin in $plugins) {

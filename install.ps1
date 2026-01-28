@@ -51,14 +51,17 @@ function Test-WindowsVersion {
 }
 
 function Get-PackageManager {
-    if (Test-Command "bun") {
-        return "bun"
-    } elseif (Test-Command "npm") {
+    # On Windows, prefer npm over bun due to bun stability issues
+    # Bun on Windows has known segmentation fault issues
+    if (Test-Command "npm") {
         return "npm"
     } elseif (Test-Command "pnpm") {
         return "pnpm"
     } elseif (Test-Command "yarn") {
         return "yarn"
+    } elseif (Test-Command "bun") {
+        Write-Warn "Bun detected, but using npm is recommended on Windows due to stability issues"
+        return "bun"
     }
     return "none"
 }

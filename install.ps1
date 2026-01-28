@@ -247,6 +247,18 @@ function Test-AuthPlugins {
 function Install-AntigravityAuthPlugin {
     param([string]$PkgManager = "npm")
     
+    # Install npm packages for plugins
+    Write-Info "Installing oh-my-opencode plugins via npm..."
+    
+    try {
+        npm install -g oh-my-opencode 2>$null
+        npm install -g opencode-antigravity-auth@1.3.2 2>$null
+        npm install -g opencode-antigravity-quota@0.1.6 2>$null
+        Write-Ok "Plugins installed successfully"
+    } catch {
+        Write-Warn "Some plugins may have failed to install"
+    }
+    
     # Ensure config directory exists
     if (-not (Test-Path $CONFIG_DIR)) {
         New-Item -ItemType Directory -Path $CONFIG_DIR -Force | Out-Null

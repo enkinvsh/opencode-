@@ -247,64 +247,149 @@ function Test-AuthPlugins {
 function Install-AntigravityAuthPlugin {
     param([string]$PkgManager = "npm")
     
-    # First, install the npm package
-    Write-Info "Installing opencode-antigravity-auth package..."
-    
-    try {
-        switch ($PkgManager) {
-            "bun" { bun install -g opencode-antigravity-auth 2>$null }
-            "npm" { npm install -g opencode-antigravity-auth 2>$null }
-            "pnpm" { pnpm install -g opencode-antigravity-auth 2>$null }
-            "yarn" { yarn global add opencode-antigravity-auth 2>$null }
-            default { npm install -g opencode-antigravity-auth 2>$null }
-        }
-    } catch {
-        Write-Warn "Package installation may have failed, but continuing with config..."
-    }
-    
     # Ensure config directory exists
     if (-not (Test-Path $CONFIG_DIR)) {
         New-Item -ItemType Directory -Path $CONFIG_DIR -Force | Out-Null
     }
     
     $configFile = Join-Path $CONFIG_DIR "opencode.json"
+    $omoConfigFile = Join-Path $CONFIG_DIR "oh-my-opencode.json"
     
-    # Create or update config with antigravity auth plugin
-    if (Test-Path $configFile) {
-        try {
-            $config = Get-Content $configFile -Raw | ConvertFrom-Json
-            
-            # Initialize plugin array if not exists (note: singular "plugin", not "plugins")
-            if (-not $config.plugin) {
-                $config | Add-Member -NotePropertyName "plugin" -NotePropertyValue @() -Force
-            }
-            
-            # Add antigravity auth plugin if not already present
-            $pluginExists = $config.plugin | Where-Object { $_ -eq "opencode-antigravity-auth" }
-            if (-not $pluginExists) {
-                $config.plugin += "opencode-antigravity-auth"
-                $config | ConvertTo-Json -Depth 10 | Set-Content $configFile -Encoding UTF8
-                Write-Ok "Added opencode-antigravity-auth plugin to config"
-            }
-        } catch {
-            Write-Warn "Failed to parse existing config, creating new one"
-            Create-FreshConfig -ConfigFile $configFile
-        }
-    } else {
-        Create-FreshConfig -ConfigFile $configFile
+    # Always create fresh opencode.json with full config
+    Create-FreshConfig -ConfigFile $configFile
+    
+    # Create oh-my-opencode.json with agent configuration
+    if (-not (Test-Path $omoConfigFile)) {
+        Create-OmoConfig -ConfigFile $omoConfigFile
     }
 }
 
 function Create-FreshConfig {
     param([string]$ConfigFile)
     
-    # Note: OpenCode uses "plugin" (singular), not "plugins"
-    $config = @{
-        plugin = @("opencode-antigravity-auth")
+    # Full OpenCode config with schema, plugins and provider
+    # Based on setup-opencode.md documentation
+    $configJson = @'
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": [
+    "oh-my-opencode",
+    "opencode-antigravity-auth@beta",
+    "opencode-antigravity-quota@0.1.6"
+  ],
+  "provider": {
+    "google": {
+      "name": "Google",
+      "models": {
+        "antigravity-claude-opus-4-5-thinking": {
+          "name": "Claude Opus 4.5 Thinking (Antigravity)",
+          "attachment": true,
+          "limit": { "context": 200000, "output": 64000 },
+          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] }
+        },
+        "antigravity-claude-sonnet-4-5-thinking": {
+          "name": "Claude Sonnet 4.5 Thinking (Antigravity)",
+          "attachment": true,
+          "limit": { "context": 200000, "output": 64000 },
+          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] }
+        },
+        "antigravity-gemini-3-flash": {
+          "name": "Gemini 3 Flash (Antigravity)",
+          "attachment": true,
+          "limit": { "context": 1048576, "output": 65536 },
+          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] }
+        },
+        "antigravity-gemini-3-pro": {
+          "name": "Gemini 3 Pro (Antigravity)",
+          "attachment": true,
+          "limit": { "context": 1048576, "output": 65535 },
+          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] }
+        }
+      }
     }
+  }
+}
+'@
     
-    $config | ConvertTo-Json -Depth 10 | Set-Content $ConfigFile -Encoding UTF8
-    Write-Ok "Created opencode.json with Antigravity auth plugin"
+    $configJson | Set-Content $ConfigFile -Encoding UTF8
+    Write-Ok "Created opencode.json with full Antigravity configuration"
+}
+
+function Create-OmoConfig {
+    param([string]$ConfigFile)
+    
+    # oh-my-opencode.json with agent configuration
+    # Based on setup-opencode.md documentation
+    $configJson = @'
+{
+  "$schema": "https://oh-my-opencode.dev/schema.json",
+  
+  "agents": {
+    "sisyphus": {
+      "model": "google/antigravity-claude-opus-4-5-thinking",
+      "variant": "max",
+      "thinking": { "type": "enabled", "budgetTokens": 32000 }
+    },
+    "sisyphus-junior": {
+      "model": "google/antigravity-claude-sonnet-4-5-thinking",
+      "variant": "max",
+      "thinking": { "type": "enabled", "budgetTokens": 16000 }
+    },
+    "prometheus": {
+      "model": "google/antigravity-claude-sonnet-4-5-thinking",
+      "variant": "max",
+      "thinking": { "type": "enabled", "budgetTokens": 16000 }
+    },
+    "atlas": {
+      "model": "google/antigravity-claude-sonnet-4-5-thinking",
+      "variant": "max",
+      "thinking": { "type": "enabled", "budgetTokens": 16000 }
+    },
+    "oracle": {
+      "model": "google/antigravity-claude-opus-4-5-thinking",
+      "variant": "max",
+      "thinking": { "type": "enabled", "budgetTokens": 32000 }
+    },
+    "explore": {
+      "model": "google/antigravity-claude-sonnet-4-5-thinking",
+      "variant": "low",
+      "thinking": { "type": "enabled", "budgetTokens": 8192 }
+    },
+    "librarian": {
+      "model": "google/antigravity-claude-sonnet-4-5-thinking",
+      "variant": "low",
+      "thinking": { "type": "enabled", "budgetTokens": 8192 }
+    }
+  },
+
+  "categories": {
+    "ultrabrain": {
+      "model": "google/antigravity-claude-opus-4-5-thinking",
+      "variant": "max",
+      "thinking": { "type": "enabled", "budgetTokens": 32000 }
+    },
+    "visual-engineering": {
+      "model": "google/antigravity-claude-sonnet-4-5-thinking",
+      "variant": "max",
+      "thinking": { "type": "enabled", "budgetTokens": 16000 }
+    },
+    "quick": {
+      "model": "google/antigravity-claude-sonnet-4-5-thinking",
+      "variant": "low",
+      "thinking": { "type": "enabled", "budgetTokens": 8192 }
+    }
+  },
+
+  "sisyphus_agent": {
+    "disabled": false,
+    "planner_enabled": true,
+    "replace_plan": true
+  }
+}
+'@
+    
+    $configJson | Set-Content $ConfigFile -Encoding UTF8
+    Write-Ok "Created oh-my-opencode.json with agent configuration"
 }
 
 function Show-SuccessMessage {

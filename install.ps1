@@ -255,9 +255,7 @@ function Install-AntigravityAuthPlugin {
     $configFile = Join-Path $CONFIG_DIR "opencode.json"
     $omoConfigFile = Join-Path $CONFIG_DIR "oh-my-opencode.json"
     
-    # Create fresh opencode.json with full config
-    # NOTE: OpenCode installs plugins via Bun at startup, not npm global
-    # We just need to specify plugin names in the config
+    # Create opencode.json with plugin config
     Create-FreshConfig -ConfigFile $configFile
     
     # Create oh-my-opencode.json with agent configuration
@@ -265,15 +263,33 @@ function Install-AntigravityAuthPlugin {
         Create-OmoConfig -ConfigFile $omoConfigFile
     }
     
-    # Clear OpenCode's plugin cache to force fresh install
-    $cacheDir = "$env:USERPROFILE\.cache\opencode\node_modules"
-    if (Test-Path $cacheDir) {
-        Write-Info "Clearing OpenCode plugin cache..."
-        Remove-Item -Recurse -Force $cacheDir -ErrorAction SilentlyContinue
-    }
+    # CRITICAL: Install plugins locally in the config directory
+    # OpenCode looks for node_modules in the config directory
+    Write-Info "Installing plugins in config directory..."
     
-    Write-Ok "Configuration files created"
-    Write-Info "OpenCode will install plugins automatically on first start"
+    Push-Location $CONFIG_DIR
+    try {
+        # Initialize package.json if not exists
+        if (-not (Test-Path "package.json")) {
+            npm init -y 2>$null | Out-Null
+        }
+        
+        # Install oh-my-opencode and auth plugins locally
+        Write-Info "Installing oh-my-opencode (this may take a minute)..."
+        npm install oh-my-opencode --save 2>&1 | Out-Null
+        
+        Write-Info "Installing opencode-antigravity-auth..."
+        npm install opencode-antigravity-auth --save 2>&1 | Out-Null
+        
+        Write-Info "Installing opencode-antigravity-quota..."
+        npm install opencode-antigravity-quota --save 2>&1 | Out-Null
+        
+        Write-Ok "Plugins installed successfully"
+    } catch {
+        Write-Warn "Some plugins may have failed to install: $_"
+    } finally {
+        Pop-Location
+    }
 }
 
 function Create-FreshConfig {

@@ -176,10 +176,37 @@ function Test-AuthPlugins {
 
 function Show-SuccessMessage {
     Write-Host ""
-    Write-Host "=============================================" -ForegroundColor Green
+    Write-Host "==============================================" -ForegroundColor Green
     Write-Host "   Oh-My-OpenCode installed successfully!   " -ForegroundColor Green
-    Write-Host "=============================================" -ForegroundColor Green
+    Write-Host "==============================================" -ForegroundColor Green
     Write-Host ""
+    
+    # Check if opencode is available in PATH
+    if (-not (Test-Command "opencode")) {
+        Write-Host ""
+        Write-Host "IMPORTANT: 'opencode' command not found in PATH!" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "You need to restart your terminal (close and reopen PowerShell)" -ForegroundColor Yellow
+        Write-Host "for the PATH changes to take effect." -ForegroundColor Yellow
+        Write-Host ""
+        
+        # Show where the binary might be located
+        $bunBinPath = "$env:USERPROFILE\.bun\bin"
+        $npmBinPath = "$env:APPDATA\npm"
+        
+        if (Test-Path $bunBinPath) {
+            Write-Host "Bun bin directory found at: $bunBinPath" -ForegroundColor Gray
+        }
+        if (Test-Path $npmBinPath) {
+            Write-Host "npm bin directory found at: $npmBinPath" -ForegroundColor Gray
+        }
+        
+        Write-Host ""
+        Write-Host "If 'opencode' still doesn't work after restart, ensure the bin" -ForegroundColor Gray
+        Write-Host "directory is in your PATH environment variable." -ForegroundColor Gray
+        Write-Host ""
+    }
+    
     Write-Host "Next steps:" -ForegroundColor White
     Write-Host ""
     Write-Host "  1. Authenticate with Antigravity:" -ForegroundColor White

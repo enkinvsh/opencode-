@@ -214,6 +214,8 @@ function Invoke-SetupWizard {
 }
 
 function Test-AuthPlugins {
+    param([string]$PkgManager = "npm")
+    
     if ($SkipAuthCheck) {
         Write-Info "Skipping auth plugins check (--SkipAuthCheck)"
         return
@@ -229,12 +231,76 @@ function Test-AuthPlugins {
             Write-Ok "Antigravity auth plugin already configured"
         } else {
             Write-Warn "Antigravity auth plugin not found in config"
-            Write-Info "You may need to add it manually or run 'opencode auth login'"
+            Write-Info "Adding plugin to configuration..."
+            Install-AntigravityAuthPlugin -PkgManager $PkgManager
         }
     } else {
         Write-Warn "OpenCode config not found at $configFile"
-        Write-Info "The setup wizard will create it for you"
+        Write-Info "Creating config with Antigravity auth plugin..."
+        Install-AntigravityAuthPlugin -PkgManager $PkgManager
     }
+}
+
+function Install-AntigravityAuthPlugin {
+    param([string]$PkgManager = "npm")
+    
+    # First, install the npm package
+    Write-Info "Installing opencode-antigravity-auth package..."
+    
+    try {
+        switch ($PkgManager) {
+            "bun" { bun install -g opencode-antigravity-auth 2>$null }
+            "npm" { npm install -g opencode-antigravity-auth 2>$null }
+            "pnpm" { pnpm install -g opencode-antigravity-auth 2>$null }
+            "yarn" { yarn global add opencode-antigravity-auth 2>$null }
+            default { npm install -g opencode-antigravity-auth 2>$null }
+        }
+    } catch {
+        Write-Warn "Package installation may have failed, but continuing with config..."
+    }
+    
+    # Ensure config directory exists
+    if (-not (Test-Path $CONFIG_DIR)) {
+        New-Item -ItemType Directory -Path $CONFIG_DIR -Force | Out-Null
+    }
+    
+    $configFile = Join-Path $CONFIG_DIR "opencode.json"
+    
+    # Create or update config with antigravity auth plugin
+    if (Test-Path $configFile) {
+        try {
+            $config = Get-Content $configFile -Raw | ConvertFrom-Json
+            
+            # Initialize plugins array if not exists
+            if (-not $config.plugins) {
+                $config | Add-Member -NotePropertyName "plugins" -NotePropertyValue @() -Force
+            }
+            
+            # Add antigravity auth plugin if not already present
+            $pluginExists = $config.plugins | Where-Object { $_ -eq "opencode-antigravity-auth" }
+            if (-not $pluginExists) {
+                $config.plugins += "opencode-antigravity-auth"
+                $config | ConvertTo-Json -Depth 10 | Set-Content $configFile -Encoding UTF8
+                Write-Ok "Added opencode-antigravity-auth plugin to config"
+            }
+        } catch {
+            Write-Warn "Failed to parse existing config, creating new one"
+            Create-FreshConfig -ConfigFile $configFile
+        }
+    } else {
+        Create-FreshConfig -ConfigFile $configFile
+    }
+}
+
+function Create-FreshConfig {
+    param([string]$ConfigFile)
+    
+    $config = @{
+        plugins = @("opencode-antigravity-auth")
+    }
+    
+    $config | ConvertTo-Json -Depth 10 | Set-Content $ConfigFile -Encoding UTF8
+    Write-Ok "Created opencode.json with Antigravity auth plugin"
 }
 
 function Show-SuccessMessage {
@@ -320,7 +386,7 @@ function Main {
     Write-Host ""
     Invoke-SetupWizard -PkgManager $pkgManager
     
-    Test-AuthPlugins
+    Test-AuthPlugins -PkgManager $pkgManager
     
     Show-SuccessMessage
 }

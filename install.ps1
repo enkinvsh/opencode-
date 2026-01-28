@@ -82,6 +82,69 @@ function Show-NodeInstallHint {
     Write-Host ""
 }
 
+function Test-OpenCodeInstalled {
+    # Check for opencode binary in PATH
+    if (Test-Command "opencode") {
+        return $true
+    }
+    # Check common installation locations
+    $commonPaths = @(
+        "$env:APPDATA\npm\opencode.cmd",
+        "$env:APPDATA\npm\opencode",
+        "$env:USERPROFILE\.bun\bin\opencode.exe",
+        "$env:USERPROFILE\scoop\shims\opencode.exe",
+        "C:\ProgramData\chocolatey\bin\opencode.exe"
+    )
+    foreach ($path in $commonPaths) {
+        if (Test-Path $path) {
+            return $true
+        }
+    }
+    return $false
+}
+
+function Install-OpenCode {
+    param([string]$PkgManager)
+    
+    Write-Info "Installing OpenCode CLI..."
+    Write-Host ""
+    
+    switch ($PkgManager) {
+        "bun" {
+            bun install -g opencode-ai
+        }
+        "npm" {
+            npm install -g opencode-ai
+        }
+        "pnpm" {
+            pnpm install -g opencode-ai
+        }
+        "yarn" {
+            yarn global add opencode-ai
+        }
+        default {
+            throw "No package manager available to install OpenCode"
+        }
+    }
+    
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warn "OpenCode installation via $PkgManager may have failed."
+        Write-Host ""
+        Write-Host "Alternative installation methods:" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "  # Using Scoop (recommended for Windows):" -ForegroundColor Gray
+        Write-Host "  scoop install opencode"
+        Write-Host ""
+        Write-Host "  # Using Chocolatey:" -ForegroundColor Gray
+        Write-Host "  choco install opencode"
+        Write-Host ""
+        return $false
+    }
+    
+    Write-Ok "OpenCode installed successfully"
+    return $true
+}
+
 function Test-Prerequisites {
     Write-Info "Checking prerequisites..."
     
@@ -237,6 +300,21 @@ function Main {
     if ($pkgManager -eq "none") {
         Show-NodeInstallHint
         exit 1
+    }
+    
+    # Check if OpenCode is installed, install if not
+    Write-Host ""
+    Write-Info "Checking OpenCode installation..."
+    
+    if (-not (Test-OpenCodeInstalled)) {
+        Write-Warn "OpenCode CLI not found. Installing..."
+        $installed = Install-OpenCode -PkgManager $pkgManager
+        if (-not $installed) {
+            Write-Err "Failed to install OpenCode. Please install it manually and re-run this script."
+            exit 1
+        }
+    } else {
+        Write-Ok "OpenCode CLI is already installed"
     }
     
     Write-Host ""

@@ -5,7 +5,7 @@ set -euo pipefail
 
 # =============================================================================
 # Oh-My-OpenCode Universal Installer (Linux/macOS)
-# Usage: curl -fsSL https://raw.githubusercontent.com/user/repo/main/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/code-yeongyu/oh-my-opencode/main/install.sh | bash
 # =============================================================================
 
 # Colors
@@ -153,7 +153,7 @@ check_prerequisites() {
     if [ "$platform" = "windows" ]; then
         warn "Windows detected. Use PowerShell installer instead:"
         echo ""
-        echo "    irm https://raw.githubusercontent.com/user/repo/main/install.ps1 | iex"
+        echo "    irm https://raw.githubusercontent.com/code-yeongyu/oh-my-opencode/main/install.ps1 | iex"
         echo ""
         exit 0
     fi
@@ -286,6 +286,60 @@ run_setup_wizard() {
     esac
 }
 
+check_opencode_installed() {
+    if command_exists opencode; then
+        local version
+        version=$(opencode --version 2>/dev/null || echo "unknown")
+        success "OpenCode $version is installed"
+        return 0
+    else
+        return 1
+    fi
+}
+
+install_opencode() {
+    local pkg_manager="$1"
+    
+    info "Installing OpenCode CLI..."
+    
+    if command_exists curl; then
+        info "Using official OpenCode installer..."
+        if curl -fsSL https://opencode.ai/install | bash; then
+            if [ -f "$HOME/.bashrc" ]; then
+                # shellcheck disable=SC1091
+                . "$HOME/.bashrc" 2>/dev/null || true
+            fi
+            if [ -f "$HOME/.zshrc" ]; then
+                # shellcheck disable=SC1091
+                . "$HOME/.zshrc" 2>/dev/null || true
+            fi
+            
+            if command_exists opencode; then
+                success "OpenCode installed successfully"
+                return 0
+            fi
+        fi
+        warn "Official installer failed, trying package manager..."
+    fi
+    
+    case "$pkg_manager" in
+        bun)
+            bun install -g @opencode-ai/cli && success "OpenCode installed via bun" && return 0
+            ;;
+        npm)
+            npm install -g @opencode-ai/cli && success "OpenCode installed via npm" && return 0
+            ;;
+        pnpm)
+            pnpm add -g @opencode-ai/cli && success "OpenCode installed via pnpm" && return 0
+            ;;
+        yarn)
+            yarn global add @opencode-ai/cli && success "OpenCode installed via yarn" && return 0
+            ;;
+    esac
+    
+    return 1
+}
+
 setup_auth_plugins() {
     info "Checking auth plugins configuration..."
     
@@ -350,14 +404,29 @@ main() {
         exit 1
     fi
     
-    # Step 3: Run the interactive installer
+    # Step 3: Install OpenCode CLI (if not already installed)
+    echo ""
+    if ! check_opencode_installed; then
+        info "OpenCode not found. Installing..."
+        if ! install_opencode "$pkg_manager"; then
+            error "Failed to install OpenCode CLI"
+            echo ""
+            echo "Please install OpenCode manually:"
+            echo "  ${CYAN}curl -fsSL https://opencode.ai/install | bash${NC}"
+            echo ""
+            echo "Then re-run this installer."
+            exit 1
+        fi
+    fi
+    
+    # Step 4: Run the interactive oh-my-opencode installer
     echo ""
     run_setup_wizard "$pkg_manager"
     
-    # Step 4: Verify auth plugins
+    # Step 5: Verify auth plugins
     setup_auth_plugins
     
-    # Step 5: Success message
+    # Step 6: Success message
     print_success_message
 }
 

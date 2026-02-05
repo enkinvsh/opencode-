@@ -34,7 +34,6 @@ npx oh-my-opencode install
 |-----------|-------------------|----------|
 | Node.js | 18+ | `node --version` |
 | **или** Bun | любая | `bun --version` |
-| OpenCode | актуальная | `opencode --version` |
 
 **Установка Node.js:**
 
@@ -54,7 +53,25 @@ curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
 nvm install --lts
 ```
 
-### Шаг 2: Запуск интерактивного установщика
+### Шаг 2: Установка OpenCode CLI
+
+```bash
+curl -fsSL https://opencode.ai/install | bash
+```
+
+Альтернативные способы:
+```bash
+npm install -g @opencode-ai/cli
+# или
+bun install -g @opencode-ai/cli
+```
+
+Проверка:
+```bash
+opencode --version
+```
+
+### Шаг 3: Запуск интерактивного установщика oh-my-opencode
 
 ```bash
 bunx oh-my-opencode install
@@ -65,7 +82,7 @@ bunx oh-my-opencode install
 - Настроит конфигурационные файлы
 - Предложит авторизоваться
 
-### Шаг 3: Авторизация через Antigravity
+### Шаг 4: Авторизация через Antigravity
 
 ```bash
 opencode auth login

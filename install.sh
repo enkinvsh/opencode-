@@ -349,8 +349,8 @@ create_opencode_config() {
 {
   "plugin": [
     "oh-my-opencode",
-    "opencode-antigravity-auth@1.4.3",
-    "opencode-antigravity-quota@0.1.6"
+    "opencode-antigravity-auth",
+    "opencode-antigravity-quota"
   ],
   "provider": {
     "google": {
@@ -527,8 +527,8 @@ install_plugins() {
 {
   "dependencies": {
     "oh-my-opencode": "latest",
-    "opencode-antigravity-auth": "1.4.3",
-    "opencode-antigravity-quota": "0.1.6"
+    "opencode-antigravity-auth": "latest",
+    "opencode-antigravity-quota": "latest"
   }
 }
 EOF

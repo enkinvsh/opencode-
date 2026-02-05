@@ -518,21 +518,45 @@ setup_configs() {
     success "Configuration files created"
 }
 
+install_plugins() {
+    info "Installing oh-my-opencode plugins..."
+    
+    mkdir -p "$CONFIG_DIR"
+    
+    cat > "${CONFIG_DIR}/package.json" << 'EOF'
+{
+  "dependencies": {
+    "oh-my-opencode": "latest",
+    "opencode-antigravity-auth": "1.4.3",
+    "opencode-antigravity-quota": "0.1.6"
+  }
+}
+EOF
+    
+    cd "$CONFIG_DIR" || die "Failed to cd to $CONFIG_DIR"
+    
+    if command_exists bun; then
+        bun install && success "Plugins installed via bun" && return 0
+    elif command_exists npm; then
+        npm install && success "Plugins installed via npm" && return 0
+    elif command_exists pnpm; then
+        pnpm install && success "Plugins installed via pnpm" && return 0
+    elif command_exists yarn; then
+        yarn install && success "Plugins installed via yarn" && return 0
+    fi
+    
+    warn "Could not install plugins automatically"
+    return 1
+}
+
 setup_auth_plugins() {
-    info "Checking auth plugins configuration..."
+    info "Verifying auth plugins..."
     
-    local opencode_config="${CONFIG_DIR}/opencode.json"
-    
-    if [ -f "$opencode_config" ]; then
-        if grep -q "opencode-antigravity-auth" "$opencode_config" 2>/dev/null; then
-            success "Antigravity auth plugin already configured"
-        else
-            warn "Antigravity auth plugin not found in config"
-            info "You may need to add it manually or run 'opencode auth login'"
-        fi
+    if [ -d "${CONFIG_DIR}/node_modules/opencode-antigravity-auth" ]; then
+        success "Antigravity auth plugin installed"
     else
-        warn "OpenCode config not found at $opencode_config"
-        info "The setup wizard will create it for you"
+        warn "Antigravity auth plugin not found in node_modules"
+        info "Try running: cd ~/.config/opencode && npm install"
     fi
 }
 
@@ -601,7 +625,11 @@ main() {
     echo ""
     setup_configs
     
-    # Step 5: Verify auth plugins
+    # Step 5: Install plugins
+    echo ""
+    install_plugins
+    
+    # Step 6: Verify auth plugins
     setup_auth_plugins
     
     # Step 6: Success message

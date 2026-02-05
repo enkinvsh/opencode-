@@ -340,6 +340,184 @@ install_opencode() {
     return 1
 }
 
+create_opencode_config() {
+    info "Creating opencode.json..."
+    
+    mkdir -p "$CONFIG_DIR"
+    
+    cat > "${CONFIG_DIR}/opencode.json" << 'EOF'
+{
+  "plugin": [
+    "oh-my-opencode",
+    "opencode-antigravity-auth@1.4.3",
+    "opencode-antigravity-quota@0.1.6"
+  ],
+  "provider": {
+    "google": {
+      "name": "Google",
+      "models": {
+        "antigravity-gemini-3-pro-high": {
+          "name": "Gemini 3 Pro High (Antigravity)",
+          "attachment": true,
+          "limit": { "context": 1048576, "output": 65535 },
+          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] }
+        },
+        "antigravity-gemini-3-flash": {
+          "name": "Gemini 3 Flash (Antigravity)",
+          "attachment": true,
+          "limit": { "context": 1048576, "output": 65536 },
+          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] }
+        },
+        "antigravity-claude-opus-4-5-thinking": {
+          "name": "Claude Opus 4.5 Thinking (Antigravity)",
+          "attachment": true,
+          "limit": { "context": 200000, "output": 64000 },
+          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] }
+        },
+        "antigravity-claude-sonnet-4-5-thinking": {
+          "name": "Claude Sonnet 4.5 Thinking (Antigravity)",
+          "attachment": true,
+          "limit": { "context": 200000, "output": 64000 },
+          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] }
+        }
+      }
+    }
+  },
+  "$schema": "https://opencode.ai/config.json"
+}
+EOF
+    
+    success "Created ${CONFIG_DIR}/opencode.json"
+}
+
+create_ohmyopencode_config() {
+    info "Creating oh-my-opencode.json..."
+    
+    cat > "${CONFIG_DIR}/oh-my-opencode.json" << 'EOF'
+{
+  "$schema": "https://oh-my-opencode.dev/schema.json",
+  
+  "agents": {
+    "sisyphus": {
+      "model": "google/antigravity-claude-opus-4-5-thinking",
+      "variant": "max",
+      "thinking": { "type": "enabled", "budgetTokens": 32000 }
+    },
+    "sisyphus-junior": {
+      "model": "google/antigravity-claude-sonnet-4-5-thinking",
+      "variant": "max",
+      "thinking": { "type": "enabled", "budgetTokens": 16000 }
+    },
+    "prometheus": {
+      "model": "google/antigravity-claude-sonnet-4-5-thinking",
+      "variant": "max",
+      "thinking": { "type": "enabled", "budgetTokens": 16000 }
+    },
+    "atlas": {
+      "model": "google/antigravity-claude-sonnet-4-5-thinking",
+      "variant": "max",
+      "thinking": { "type": "enabled", "budgetTokens": 16000 }
+    },
+    "oracle": {
+      "model": "google/antigravity-claude-opus-4-5-thinking",
+      "variant": "max",
+      "thinking": { "type": "enabled", "budgetTokens": 32000 }
+    },
+    "metis": {
+      "model": "google/antigravity-claude-sonnet-4-5-thinking",
+      "variant": "low",
+      "thinking": { "type": "enabled", "budgetTokens": 8192 }
+    },
+    "momus": {
+      "model": "google/antigravity-claude-sonnet-4-5-thinking",
+      "variant": "low",
+      "thinking": { "type": "enabled", "budgetTokens": 8192 }
+    },
+    "explore": {
+      "model": "google/antigravity-claude-sonnet-4-5-thinking",
+      "variant": "low",
+      "thinking": { "type": "enabled", "budgetTokens": 8192 }
+    },
+    "librarian": {
+      "model": "google/antigravity-claude-sonnet-4-5-thinking",
+      "variant": "low",
+      "thinking": { "type": "enabled", "budgetTokens": 8192 }
+    },
+    "multimodal-looker": {
+      "model": "google/antigravity-gemini-3-pro-high",
+      "variant": "high"
+    }
+  },
+
+  "categories": {
+    "ultrabrain": {
+      "model": "google/antigravity-claude-opus-4-5-thinking",
+      "variant": "max",
+      "thinking": { "type": "enabled", "budgetTokens": 32000 }
+    },
+    "unspecified-high": {
+      "model": "google/antigravity-claude-sonnet-4-5-thinking",
+      "variant": "max",
+      "thinking": { "type": "enabled", "budgetTokens": 16000 }
+    },
+    "visual-engineering": {
+      "model": "google/antigravity-claude-sonnet-4-5-thinking",
+      "variant": "max",
+      "thinking": { "type": "enabled", "budgetTokens": 16000 }
+    },
+    "quick": {
+      "model": "google/antigravity-claude-sonnet-4-5-thinking",
+      "variant": "low",
+      "thinking": { "type": "enabled", "budgetTokens": 8192 }
+    },
+    "unspecified-low": {
+      "model": "google/antigravity-claude-sonnet-4-5-thinking",
+      "variant": "low",
+      "thinking": { "type": "enabled", "budgetTokens": 8192 }
+    },
+    "artistry": {
+      "model": "google/antigravity-claude-sonnet-4-5-thinking",
+      "variant": "max",
+      "temperature": 0.9,
+      "thinking": { "type": "enabled", "budgetTokens": 16000 }
+    },
+    "writing": {
+      "model": "google/antigravity-claude-sonnet-4-5",
+      "temperature": 0.5
+    }
+  },
+
+  "sisyphus_agent": {
+    "disabled": false,
+    "planner_enabled": true,
+    "replace_plan": true
+  }
+}
+EOF
+    
+    success "Created ${CONFIG_DIR}/oh-my-opencode.json"
+}
+
+setup_configs() {
+    info "Setting up configuration files..."
+    echo ""
+    
+    if [ -f "${CONFIG_DIR}/opencode.json" ]; then
+        warn "opencode.json already exists, backing up..."
+        cp "${CONFIG_DIR}/opencode.json" "${CONFIG_DIR}/opencode.json.bak.$(date +%Y%m%d%H%M%S)"
+    fi
+    
+    if [ -f "${CONFIG_DIR}/oh-my-opencode.json" ]; then
+        warn "oh-my-opencode.json already exists, backing up..."
+        cp "${CONFIG_DIR}/oh-my-opencode.json" "${CONFIG_DIR}/oh-my-opencode.json.bak.$(date +%Y%m%d%H%M%S)"
+    fi
+    
+    create_opencode_config
+    create_ohmyopencode_config
+    
+    success "Configuration files created"
+}
+
 setup_auth_plugins() {
     info "Checking auth plugins configuration..."
     
@@ -419,9 +597,9 @@ main() {
         fi
     fi
     
-    # Step 4: Run the interactive oh-my-opencode installer
+    # Step 4: Create configuration files
     echo ""
-    run_setup_wizard "$pkg_manager"
+    setup_configs
     
     # Step 5: Verify auth plugins
     setup_auth_plugins
